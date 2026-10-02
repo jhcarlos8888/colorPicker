@@ -124,4 +124,4 @@ FORMATS:HEX=Copier hexadécimal
 FORMATS:HSV=Copier TSV
 
 PICKER:COLORCHANGED=Vous avez fermé le sélecteur de couleur et la couleur sélectionnée a changé.\nVoulez-vous revenir vers la couleur originale?
-PICKER:CAPTUREERROR=Impossible de capturer l'écran.\nLe sélecteur de couleur à l'écran nécessite une session X11\n(la session « Cinnamon » par défaut de Linux Mint, pas Wayland).
+PICKER:CAPTUREERROR=Impossible de capturer l'écran.\nLa session de bureau n'autorise pas la capture d'écran,\nle sélecteur de couleur à l'écran ne peut donc pas fonctionner.

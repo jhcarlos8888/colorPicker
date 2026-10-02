@@ -97,9 +97,12 @@ Ventana con pestañas y apariencia moderna gracias a FlatLaf.
 
 Para **usar** el programa:
 
-- Linux Mint 21/22 (o Ubuntu 22.04+/Debian 12+) con sesión **X11** (la de Cinnamon,
-  MATE y Xfce en Mint). En Wayland la ventana funciona mediante XWayland, pero el
-  selector de color en pantalla no, porque Java no puede capturar la pantalla allí.
+- Linux Mint 21/22 (o Ubuntu 22.04+/Debian 12+), con sesión **X11** o **Wayland**.
+  En Wayland la ventana corre mediante XWayland y el selector de color en pantalla
+  funciona (comprobado en Ubuntu 26.04 con GNOME/Wayland). Solo en sesiones Wayland
+  muy restrictivas la captura puede fallar (pantalla en negro o aviso «no se puede
+  capturar la pantalla»); en ese caso el resto del programa sigue funcionando con
+  normalidad.
 - Paquete autocontenido: nada más (lleva su propio Java).
 - Paquete ligero: Java 17 o superior con soporte gráfico (no basta un Java
   *headless*). `apt` lo instala como dependencia; a mano:
@@ -259,8 +262,10 @@ ColorPicker/
 5. Las **claves de idioma** que no se encuentran caen al inglés (p. ej.
    `TOOL_ALLCOLORS:MSG_INITIALIZING`).
 6. El **selector en pantalla** trabaja sobre una captura congelada de la pantalla con
-   una lupa. Requiere X11; en Wayland no es posible (Java no puede capturar la
-   pantalla).
+   una lupa. Funciona en X11 y también en Wayland (p. ej. Ubuntu 26.04 con GNOME,
+   donde la captura llega por XWayland). Si la sesión impide capturar la pantalla, la
+   imagen sale en negro o aparece el aviso «no se puede capturar la pantalla»; el
+   resto del programa no se ve afectado.
 7. Los **ajustes** se guardan en `~/.config/colorpicker/settings.properties`.
 8. La **instancia única** usa un archivo de bloqueo y un socket Unix
    (`$XDG_RUNTIME_DIR/colorpicker-<usuario>.lock` / `.sock`): al abrirla otra vez se

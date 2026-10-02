@@ -77,8 +77,8 @@ public final class ScreenColorPicker {
 
     /** Fallback when the PICKER:CAPTUREERROR translation is missing. */
     static final String CAPTURE_ERROR = "Unable to capture the screen.\n"
-            + "The on-screen color picker needs an X11 session\n"
-            + "(Linux Mint's default \"Cinnamon\" session, not Wayland).";
+            + "The desktop session does not allow screen capture,\n"
+            + "so the on-screen color picker cannot run.";
 
     /** Time given to the window manager / compositor to show the released button. */
     private static final int SETTLE_DELAY_MS = 50;
@@ -288,7 +288,7 @@ public final class ScreenColorPicker {
             Capture c = Capture.take();
             if (isWaylandSession() && c.isBlack()) {
                 c.flush();
-                throw new AWTException("Blank screen capture in a Wayland session");
+                throw new AWTException("Blank screen capture: the session does not allow it");
             }
             return c;
         }
@@ -740,7 +740,7 @@ public final class ScreenColorPicker {
             return bounds;
         }
 
-        /** {@code true} when every pixel is black (what a Wayland session returns). */
+        /** {@code true} when every pixel is black (what a session that blocks capture returns). */
         boolean isBlack() {
             BufferedImage img = image;
             if (img == null) {

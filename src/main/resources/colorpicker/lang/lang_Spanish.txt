@@ -123,4 +123,4 @@ FORMATS:HEX=Copiar hexadecimal
 FORMATS:HSV=Copiar HSV
 
 PICKER:COLORCHANGED=Ha cerrado el selector de color y el color ha cambiado.\nQuiere revertir al color original?
-PICKER:CAPTUREERROR=No se pudo capturar la pantalla.\nEl selector de color en pantalla necesita una sesión X11\n(la sesión «Cinnamon» predeterminada de Linux Mint, no Wayland).
+PICKER:CAPTUREERROR=No se pudo capturar la pantalla.\nEl escritorio no permite capturar la pantalla,\nasí que el selector de color en pantalla no puede usarse.

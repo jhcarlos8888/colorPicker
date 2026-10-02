@@ -124,4 +124,4 @@ FORMATS:HEX=Kopier heksadesimal
 FORMATS:HSV=Kopier HSV
 
 PICKER:COLORCHANGED=Du har avsluttet fargevelger modus og den valgte fargen har endret seg.\nVil du gå tilbake til den opprinnelige fargen?
-PICKER:CAPTUREERROR=Kan ikke ta bilde av skjermen.\nFargevelgeren på skjermen krever en X11-økt\n(standardøkten «Cinnamon» i Linux Mint, ikke Wayland).
+PICKER:CAPTUREERROR=Kan ikke ta bilde av skjermen.\nSkrivebordsøkten tillater ikke skjermbilde,\nfargevelgeren på skjermen kan derfor ikke brukes.
