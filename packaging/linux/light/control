@@ -1,0 +1,18 @@
+Package: @PACKAGE@
+Version: @VERSION@
+Section: graphics
+Priority: optional
+Architecture: all
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Depends: default-jre (>= 2:1.17) | openjdk-17-jre | openjdk-21-jre | openjdk-25-jre
+Conflicts: @CONFLICTS@
+Description: @DESCRIPTION@
+ ColorPicker is a simple but powerful color picker: RGB and HSV,
+ hexadecimal and decimal codes, an on-screen color picker, color filters,
+ web-safe and random colors, a color combiner and a tool that lists all
+ the colors of an image. English, French, Spanish and Norwegian.
+ .
+ This package uses the Java runtime of the system (Java 17 or newer).
+ The "@CONFLICTS@" package contains the same program with its own Java
+ runtime.

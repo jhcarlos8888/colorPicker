@@ -1,0 +1,312 @@
+// Linux packaging of ColorPicker (applied from build.gradle).
+//
+//   ./gradlew fatJar       build/libs/colorPicker-<version>-all.jar (java -jar)
+//   ./gradlew jpackageDeb  build/dist/colorpicker_<version>-1_<arch>.deb
+//                          self-contained: bundles a minimal Java runtime (jpackage)
+//   ./gradlew debLight     build/dist/colorpicker-light_<version>_all.deb
+//                          small, architecture-independent, uses the system Java
+//
+// -PpackagingJdk=25 builds the self-contained package with the jpackage (and the
+// Java runtime) of a Java 25 toolchain instead of Java 17.
+// -PextraModules=<module>,... adds more modules that jdeps cannot see (service
+// providers) to the bundled runtime; jdk.localedata is always included.
+
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.PosixFilePermissions
+import java.security.MessageDigest
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+interface PackagingExecOps {
+    @Inject
+    ExecOperations getExecOps()
+}
+
+def meta = [
+    appName    : 'ColorPicker',          // name shown to the user (menu, titles, manifest)
+    command    : 'colorPicker',          // executable: jpackage --name and /usr/bin/colorPicker
+    packageName: 'colorpicker',          // Debian package name and install dir (Debian: lowercase)
+    lightName  : 'colorpicker-light',    // .deb using the system Java
+    // Debian revision of the self-contained .deb, explicit because jpackage 17
+    // defaults to 1 and jpackage 25 to none (which would be a downgrade).
+    release    : '1',
+    vendor     : 'ColorPicker',
+    description: 'View and edit colors on the fly.',
+    copyright  : 'GNU General Public License v3.0',
+    maintainer : 'noreply@colorpicker.local',
+    mainClass  : 'colorpicker.Main',
+    menuGroup  : 'Graphics',
+    section    : 'graphics',
+]
+def installDir = "/opt/${meta.packageName}"          // jpackage default for --type deb
+def launcherPath = "${installDir}/bin/${meta.command}"
+def commandLink = "/usr/bin/${meta.command}"
+def iconSizes = [16, 32, 48, 64, 128]
+def appVersion = project.version.toString()
+def licenseFile = layout.projectDirectory.file('LICENSE').asFile
+
+// LinuxIntegration sets the X11 WM_CLASS (= StartupWMClass of the .desktop file)
+// through sun.awt.X11.XToolkit, which must be opened to the application.
+def addOpensX11 = '--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED'
+application.applicationDefaultJvmArgs = (application.applicationDefaultJvmArgs as List) + addOpensX11
+// The same Java options are used by ./gradlew run and by both packages.
+def javaOptions = { -> (application.applicationDefaultJvmArgs as List).collect { it.toString() } }
+
+def packagingJdk = Integer.parseInt((findProperty('packagingJdk') ?: '17').toString())
+def extraModules = (findProperty('extraModules') ?: '').toString().split(',')*.trim().findAll { it }
+def packagingLauncher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(packagingJdk)
+}
+// jdeps, jimage and jpackage of the packaging JDK (resolved when a task runs).
+def jdkTool = { String tool ->
+    File bin = packagingLauncher.get().executablePath.asFile.parentFile
+    File executable = new File(bin, tool)
+    if (!executable.canExecute()) {
+        throw new GradleException("${tool} not found in the Java ${packagingJdk} toolchain (${bin}). " +
+                'Install a full JDK that includes it, e.g. openjdk-17-jdk or Eclipse Temurin.')
+    }
+    executable.absolutePath
+}
+
+def execOps = objects.newInstance(PackagingExecOps).execOps
+def linuxDir = layout.projectDirectory.dir('packaging/linux')
+def imagesDir = layout.projectDirectory.dir('src/main/resources/colorpicker/images')
+def jpackageWork = layout.buildDirectory.dir('jpackage')
+def distDir = layout.buildDirectory.dir('dist')
+def debLightRoot = layout.buildDirectory.dir('deb-light/root')
+def debLightFile = distDir.map { it.file("${meta.lightName}_${appVersion}_all.deb") }
+
+/** Replaces the {@code @KEY@} tokens of a template. */
+def fill = { String text, Map values ->
+    String result = text
+    values.each { key, value -> result = result.replace("@${key}@".toString(), value.toString()) }
+    result
+}
+
+/** The .desktop file shared by both packages; jpackage fills in Exec and Icon itself. */
+def desktopTemplate = { -> linuxDir.file('colorpicker.desktop').asFile.getText('UTF-8') }
+
+// ---------------------------------------------------------------------------
+// Runnable jar with FlatLaf merged in.
+// ---------------------------------------------------------------------------
+def fatJar = tasks.register('fatJar', Jar) {
+    group = 'build'
+    description = 'Assembles a runnable jar (java -jar) with all runtime dependencies merged.'
+    archiveClassifier = 'all'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes(
+            'Main-Class': meta.mainClass,
+            'Implementation-Title': meta.appName,
+            'Implementation-Version': appVersion,
+            'Implementation-Vendor': meta.vendor,
+            // FlatLaf ships Java 9+ classes under META-INF/versions.
+            'Multi-Release': 'true',
+            // Same as --add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED for java -jar.
+            'Add-Opens': 'java.desktop/sun.awt.X11'
+        )
+    }
+    from(sourceSets.main.output)
+    from(licenseFile) {
+        into 'META-INF'
+    }
+    from({ configurations.runtimeClasspath.filter { it.name.endsWith('.jar') }.collect { zipTree(it) } }) {
+        exclude 'META-INF/MANIFEST.MF', 'META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA',
+                'META-INF/*.RSA', 'META-INF/*.EC', 'module-info.class', 'META-INF/versions/*/module-info.class'
+        // Keep the Apache-2.0 license of FlatLaf (the only runtime dependency) next to ours.
+        eachFile { details ->
+            if (details.path == 'META-INF/LICENSE') {
+                details.path = 'META-INF/LICENSE-flatlaf'
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Self-contained .deb: jpackage + a jlink'ed runtime with only the needed modules.
+// ---------------------------------------------------------------------------
+tasks.register('jpackageDeb') {
+    group = 'distribution'
+    description = 'Builds a self-contained .deb (bundled Java runtime) with jpackage into build/dist. ' +
+            'Use -PpackagingJdk=25 to bundle Java 25.'
+    inputs.files(fatJar)
+    inputs.dir(linuxDir)
+    inputs.file(licenseFile)
+    inputs.property('packagingJdk', packagingJdk)
+    inputs.property('extraModules', extraModules)
+
+    doLast {
+        File work = jpackageWork.get().asFile
+        File dist = distDir.get().asFile
+        File input = new File(work, 'input')
+        File resources = new File(work, 'resources')
+        File templates = new File(work, 'templates')
+        File temp = new File(work, 'temp')
+        [input, resources, templates, temp].each { it.deleteDir() }
+        [input, resources, dist].each { it.mkdirs() }
+        def isSelfDeb = { String n -> (n.startsWith("${meta.packageName}_") || n.startsWith("${meta.command}_")) && n.endsWith('.deb') }
+        dist.listFiles().findAll { isSelfDeb(it.name) }*.delete()
+
+        // 1. The jar is the only content of the application directory.
+        File jar = fatJar.get().archiveFile.get().asFile
+        Files.copy(jar.toPath(), new File(input, "${meta.packageName}.jar").toPath())
+
+        // 2. Minimal module set for jlink, as reported by jdeps. jdk.localedata is a
+        //    service provider jdeps cannot see: without it every locale gets the root
+        //    number format ("12.5%" instead of the system "12,5%" of the original).
+        def jdepsOut = new ByteArrayOutputStream()
+        execOps.exec {
+            commandLine jdkTool('jdeps'), '--multi-release', '17', '--ignore-missing-deps',
+                    '--print-module-deps', jar.absolutePath
+            standardOutput = jdepsOut
+        }
+        def modules = (jdepsOut.toString('UTF-8').trim().split(',') as List)
+                .collect { it.trim() }.findAll { it } + ['java.base', 'java.desktop', 'jdk.localedata'] + extraModules
+        modules = modules.unique().sort()
+        logger.lifecycle("jpackage: Java ${packagingJdk} runtime with modules ${modules.join(',')}")
+
+        // 3. Resource directory: our .desktop file, and jpackage's own default
+        //    postinst/prerm (they differ between JDK versions, so they are taken from
+        //    the packaging JDK) with the /usr/bin command added.
+        File javaHome = packagingLauncher.get().metadata.installationPath.asFile
+        execOps.exec {
+            commandLine jdkTool('jimage'), 'extract', '--dir', templates.absolutePath,
+                    '--include', 'regex:/jdk\\.jpackage/jdk/jpackage/internal/resources/template\\.(postinst|prerm)',
+                    new File(javaHome, 'lib/modules').absolutePath
+        }
+        def tokens = [COMMAND: meta.command, COMMAND_LINK: commandLink, LAUNCHER: launcherPath]
+        def patchScript = { String name, String caseLabel, String snippetFile ->
+            File template = new File(templates, "jdk.jpackage/jdk/jpackage/internal/resources/template.${name}")
+            if (!template.isFile()) {
+                throw new GradleException("jpackage template ${name} not found in ${javaHome}")
+            }
+            List<String> lines = template.readLines('UTF-8')
+            int at = lines.findIndexOf { it.trim() == caseLabel }
+            if (at < 0) {
+                throw new GradleException("Unexpected jpackage ${name} template (no '${caseLabel}' case)")
+            }
+            String snippet = fill(linuxDir.file("jpackage/${snippetFile}").asFile.getText('UTF-8'), tokens)
+            lines.addAll(at + 1, snippet.readLines())
+            new File(resources, name).setText(lines.join('\n') + '\n', 'UTF-8')
+        }
+        patchScript('postinst', 'configure)', 'postinst-configure.sh')
+        patchScript('prerm', 'remove|upgrade|deconfigure)', 'prerm-remove.sh')
+        // The .desktop file is looked up by jpackage under both names.
+        new File(resources, "${meta.command}.desktop").setText(desktopTemplate(), 'UTF-8')
+        new File(resources, "${meta.packageName}.desktop").setText(desktopTemplate(), 'UTF-8')
+
+        // 4. jpackage
+        def command = [jdkTool('jpackage'),
+                       '--type', 'deb',
+                       '--dest', dist.absolutePath,
+                       '--temp', temp.absolutePath,
+                       '--input', input.absolutePath,
+                       '--main-jar', "${meta.packageName}.jar",
+                       '--main-class', meta.mainClass,
+                       '--name', meta.command,
+                       '--app-version', appVersion,
+                       '--linux-app-release', meta.release,
+                       '--vendor', meta.vendor,
+                       '--description', meta.description,
+                       '--copyright', meta.copyright,
+                       '--license-file', licenseFile.absolutePath,
+                       '--icon', imagesDir.file('appicon_128.png').asFile.absolutePath,
+                       '--resource-dir', resources.absolutePath,
+                       '--add-modules', modules.join(','),
+                       '--linux-package-name', meta.packageName,
+                       '--linux-shortcut',
+                       '--linux-menu-group', meta.menuGroup,
+                       '--linux-app-category', meta.section,
+                       '--linux-deb-maintainer', meta.maintainer]
+        javaOptions().each { command += ['--java-options', it] }
+        if (logger.infoEnabled) {
+            command << '--verbose'
+        }
+        execOps.exec {
+            commandLine command.collect { it.toString() }
+        }
+        dist.listFiles().findAll { isSelfDeb(it.name) }.each {
+            logger.lifecycle("Created ${it} (${String.format('%.1f', it.length() / 1048576d)} MiB)")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Light .deb: the fat jar + launcher script, needs a Java 17+ from the system.
+// ---------------------------------------------------------------------------
+tasks.register('debLight') {
+    group = 'distribution'
+    description = 'Builds a small architecture-independent .deb that runs on the system Java (build/dist).'
+    inputs.files(fatJar)
+    inputs.dir(linuxDir)
+    inputs.property('javaOptions', javaOptions())
+    outputs.file(debLightFile)
+
+    doLast {
+        File root = debLightRoot.get().asFile
+        root.deleteDir()
+        def put = { String path, Closure writer ->
+            File target = new File(root, path)
+            target.parentFile.mkdirs()
+            writer(target)
+        }
+        def copyFile = { File source, String path ->
+            put(path) { File target -> Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING) }
+        }
+        def writeText = { String path, String text ->
+            put(path) { File target -> target.setText(text, 'UTF-8') }
+        }
+        String jarPath = "usr/share/${meta.packageName}/${meta.command}.jar"
+        String launcherScript = "usr/bin/${meta.command}"
+
+        copyFile(fatJar.get().archiveFile.get().asFile, jarPath)
+        writeText(launcherScript, fill(linuxDir.file('light/colorpicker.sh').asFile.getText('UTF-8'), [
+                PACKAGE     : meta.lightName,
+                COMMAND     : meta.command,
+                JAR         : "/${jarPath}",
+                JAVA_OPTIONS: javaOptions().join(' ')]))
+        writeText("usr/share/applications/${meta.command}.desktop", desktopTemplate()
+                .replace('APPLICATION_LAUNCHER', meta.command)
+                .replace('APPLICATION_ICON', meta.command))
+        iconSizes.each { size ->
+            copyFile(imagesDir.file("appicon_${size}.png").asFile,
+                    "usr/share/icons/hicolor/${size}x${size}/apps/${meta.command}.png")
+        }
+        copyFile(linuxDir.file('light/copyright').asFile, "usr/share/doc/${meta.lightName}/copyright")
+
+        // DEBIAN/md5sums and DEBIAN/control
+        List<File> dataFiles = []
+        root.eachFileRecurse(groovy.io.FileType.FILES) { dataFiles << it }
+        dataFiles.sort { it.path }
+        String md5sums = dataFiles.collect { f ->
+            MessageDigest.getInstance('MD5').digest(f.bytes).encodeHex().toString() + '  ' +
+                    root.toPath().relativize(f.toPath()).toString()
+        }.join('\n') + '\n'
+        long installedKiB = dataFiles.sum { (long) Math.ceil(it.length() / 1024d) } as long
+        writeText('DEBIAN/md5sums', md5sums)
+        writeText('DEBIAN/control', fill(linuxDir.file('light/control').asFile.getText('UTF-8'), [
+                PACKAGE       : meta.lightName,
+                VERSION       : appVersion,
+                MAINTAINER    : "${meta.vendor} <${meta.maintainer}>",
+                INSTALLED_SIZE: installedKiB,
+                CONFLICTS     : meta.packageName,
+                DESCRIPTION   : meta.description]))
+
+        // Permissions independent of the umask: 755 for directories and the launcher.
+        Files.walk(root.toPath()).withCloseable { paths ->
+            paths.forEach { p ->
+                boolean exec = Files.isDirectory(p) || root.toPath().relativize(p).toString() == launcherScript
+                Files.setPosixFilePermissions(p, PosixFilePermissions.fromString(exec ? 'rwxr-xr-x' : 'rw-r--r--'))
+            }
+        }
+
+        File deb = debLightFile.get().asFile
+        deb.parentFile.mkdirs()
+        deb.delete()
+        execOps.exec {
+            commandLine 'dpkg-deb', '--root-owner-group', '-Zxz', '--build', root.absolutePath, deb.absolutePath
+        }
+        logger.lifecycle("Created ${deb} (${String.format('%.1f', deb.length() / 1048576d)} MiB)")
+    }
+}

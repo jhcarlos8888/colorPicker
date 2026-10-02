@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=ColorPicker
+GenericName=Color Picker
+GenericName[es]=Selector de colores
+GenericName[fr]=Sélecteur de couleurs
+GenericName[nb]=Fargevelger
+Comment=View and edit colors on the fly.
+Comment[es]=Ver y editar colores al instante.
+Comment[fr]=Afficher et modifier les couleurs à la volée.
+Comment[nb]=Vis og rediger farger i farten.
+Exec=APPLICATION_LAUNCHER
+Icon=APPLICATION_ICON
+Terminal=false
+Categories=Graphics;Utility;
+Keywords=color;colour;picker;hex;rgb;hsv;
+Keywords[es]=color;selector;cuentagotas;hex;rgb;hsv;
+StartupWMClass=ColorPicker

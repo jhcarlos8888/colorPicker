@@ -1,0 +1,24 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: ColorPicker
+Comment: Java/Swing color picker program for Linux.
+ The application jar also bundles the FlatLaf look and feel,
+ Copyright 2019-2026 FormDev Software GmbH, under the Apache-2.0 license.
+
+Files: *
+Copyright: 2011-2026 ColorPicker contributors
+License: GPL-3
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License version 3 as
+ published by the Free Software Foundation.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in "/usr/share/common-licenses/GPL-3".
+
+License: Apache-2.0
+ On Debian systems, the complete text of the Apache License version 2.0
+ can be found in "/usr/share/common-licenses/Apache-2.0".

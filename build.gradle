@@ -1,0 +1,66 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'colorpicker'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.formdev:flatlaf:3.7.2'
+
+    testImplementation platform('org.junit:junit-bom:5.13.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+application {
+    mainClass = 'colorpicker.Main'
+    applicationName = 'colorPicker'
+    applicationDefaultJvmArgs = ['-Dawt.useSystemAAFontSettings=on', '-Dswing.aatext=true']
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 17
+    options.compilerArgs += ['-Xlint:all', '-Xlint:-serial']
+}
+
+processResources {
+    // Captured at configuration time and declared as input, so a version bump
+    // regenerates version.properties (also used by the packages).
+    def appVersion = project.version.toString()
+    inputs.property('version', appVersion)
+    filesMatching('colorpicker/version.properties') {
+        expand(version: appVersion)
+    }
+}
+
+test {
+    useJUnitPlatform()
+    // Headless so the core tests never pop up windows.
+    systemProperty 'java.awt.headless', 'true'
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'colorpicker.Main',
+            'Implementation-Title': 'ColorPicker',
+            'Implementation-Version': project.version
+        )
+    }
+}
+
+// Packaging tasks (fat jar, .deb) live in their own file.
+apply from: 'packaging/packaging.gradle'
